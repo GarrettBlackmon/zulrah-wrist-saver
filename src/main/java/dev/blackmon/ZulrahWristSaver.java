@@ -29,7 +29,7 @@ import net.runelite.client.ui.overlay.outline.ModelOutlineRenderer;
 @PluginDescriptor(
         name = "Zulrah Wrist Saver",
         description = "Outlines Zulrah after a short delay and hides once you attack.",
-        enabledByDefault = false
+        enabledByDefault = true
 )
 public class ZulrahWristSaver extends Plugin
 {
