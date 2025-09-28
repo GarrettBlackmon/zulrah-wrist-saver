@@ -6,7 +6,7 @@ Outlines **Zulrah** a few ticks after it first becomes visible so you don’t ha
 
 Video Demo:
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/foLr4ffOURU" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+[![Youtube Video]()](https://youtu.be/foLr4ffOURU)
 
 ---
 
