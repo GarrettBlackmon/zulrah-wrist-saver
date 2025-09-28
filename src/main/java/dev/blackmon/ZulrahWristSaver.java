@@ -1,9 +1,22 @@
 package dev.blackmon;
 
 import javax.inject.Inject;
-import java.awt.*;
-import net.runelite.api.*;
-import net.runelite.api.events.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Shape;
+
+import com.google.inject.Provides;
+import net.runelite.api.Actor;
+import net.runelite.api.Client;
+import net.runelite.api.GameState;
+import net.runelite.api.NPC;
+import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.InteractingChanged;
+import net.runelite.api.events.NpcChanged;
+import net.runelite.api.events.NpcDespawned;
+import net.runelite.api.events.NpcSpawned;
+import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -11,41 +24,48 @@ import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.overlay.outline.ModelOutlineRenderer;
 
 @PluginDescriptor(
-        name = "Zulrah Wrist Saver (MVP)",
-        description = "Highlights Zulrah 4 ticks after it first appears on-screen, hides once you attack.",
+        name = "Zulrah Wrist Saver",
+        description = "Outlines Zulrah after a short delay and hides once you attack.",
         enabledByDefault = false
 )
-public class ExamplePlugin extends Plugin
+public class ZulrahWristSaver extends Plugin
 {
-    // ======= TWEAKS =======
-    private static final int DELAY_TICKS = 4;            // 4 ticks = 2.4s
-    private static final Color EDGE_COLOR = new Color(0, 255, 0, 255);
-    private static final int FILL_ALPHA = 50;
+    // MVP: fixed delay and width (color + feather are configurable via config UI)
+    private static final int DELAY_TICKS = 4;   // 4 ticks = 2.4s
+    private static final int OUTLINE_WIDTH = 3; // constant for MVP (can make configurable later)
 
     @Inject private Client client;
     @Inject private OverlayManager overlayManager;
+    @Inject private ModelOutlineRenderer modelOutlineRenderer;
+    @Inject private ZulrahWristSaverConfig config;
 
-    private final Overlay overlay = new SimpleHullOverlay();
+    private Overlay overlay;
 
-    private NPC zulrah;                  // current Zulrah
-    private Integer startTick;           // when we started counting (first on-screen frame)
-    private int tickCounter;             // absolute game ticks since plugin start
-    private boolean wasOnscreen;         // last frame's on-screen state
-    private boolean suppressUntilNextPhase; // becomes true once you target Zulrah; cleared on phase change/dive
+    private NPC zulrah;                       // current Zulrah instance
+    private Integer startTick;                // tick when first on-screen frame occurred
+    private int tickCounter;                  // absolute ticks since plugin start
+    private boolean wasOnscreen;              // visibility last frame
+    private boolean suppressUntilNextPhase;   // true after you target Zulrah (hide outline until next phase)
 
     @Override
     protected void startUp()
     {
         resetAll();
+        overlay = new OutlineOverlay();
         overlayManager.add(overlay);
     }
 
     @Override
     protected void shutDown()
     {
-        overlayManager.remove(overlay);
+        if (overlay != null)
+        {
+            overlayManager.remove(overlay);
+            overlay = null;
+        }
         resetAll();
     }
 
@@ -82,8 +102,7 @@ public class ExamplePlugin extends Plugin
         if (name != null && name.equalsIgnoreCase("Zulrah"))
         {
             zulrah = npc;
-            // Start timing when it first becomes visible (handled in overlay)
-            startTick = null;
+            startTick = null;          // start timing on first on-screen frame
             wasOnscreen = false;
             suppressUntilNextPhase = false;
         }
@@ -101,20 +120,19 @@ public class ExamplePlugin extends Plugin
         }
     }
 
-    // Covers the “phase change” case even if the NPC doesn’t fully despawn between forms.
+    // Phase morphs (green/red/blue forms) → treat as a fresh emerge
     @Subscribe
     public void onNpcChanged(NpcChanged e)
     {
         if (zulrah != null && e.getNpc() == zulrah)
         {
-            // New form/phase → treat like a fresh cycle
             startTick = null;
             wasOnscreen = false;
             suppressUntilNextPhase = false;
         }
     }
 
-    // Hide highlight once YOU actually target Zulrah (any combat style).
+    // Hide outline after YOU successfully target Zulrah
     @Subscribe
     public void onInteractingChanged(InteractingChanged e)
     {
@@ -122,48 +140,46 @@ public class ExamplePlugin extends Plugin
 
         final Actor src = e.getSource();
         final Actor tgt = e.getTarget();
-
         if (src == client.getLocalPlayer() && tgt == zulrah)
         {
-            suppressUntilNextPhase = true; // you clicked; no more highlight this phase
+            suppressUntilNextPhase = true;
         }
     }
 
-    private boolean shouldHighlight(boolean onscreen)
+    private boolean shouldOutline(boolean onscreen)
     {
         if (zulrah == null || !onscreen || startTick == null) return false;
         if (suppressUntilNextPhase) return false;
-
         return (tickCounter - startTick) >= DELAY_TICKS;
     }
 
-    /** Minimal overlay that tracks on-screen transitions and draws a hull after the delay. */
-    private final class SimpleHullOverlay extends Overlay
+    /** Overlay that draws a crisp model outline; convex hull is used only to detect visibility. */
+    private final class OutlineOverlay extends Overlay
     {
-        SimpleHullOverlay()
+        OutlineOverlay()
         {
             setPosition(OverlayPosition.DYNAMIC);
             setLayer(OverlayLayer.ABOVE_SCENE);
         }
 
         @Override
-        public Dimension render(Graphics2D g)
+        public Dimension render(java.awt.Graphics2D g)
         {
             if (zulrah == null)
             {
                 return null;
             }
 
-            // On-screen detection via convex hull
+            // Visibility via convex hull
             final Shape hull = zulrah.getConvexHull();
             final boolean onscreen = hull != null;
 
-            // First visible frame → start tick timer
+            // First visible frame → start timer
             if (onscreen && !wasOnscreen)
             {
                 startTick = tickCounter;
             }
-            // Went off-screen (dive) → clear timer & suppression so next emerge is fresh
+            // Went off-screen (dive) → clear for next emerge
             if (!onscreen && wasOnscreen)
             {
                 startTick = null;
@@ -171,21 +187,29 @@ public class ExamplePlugin extends Plugin
             }
             wasOnscreen = onscreen;
 
-            if (!shouldHighlight(onscreen))
+            if (!shouldOutline(onscreen))
             {
                 return null;
             }
 
-            // Draw translucent hull
-            final Color fill = new Color(EDGE_COLOR.getRed(), EDGE_COLOR.getGreen(), EDGE_COLOR.getBlue(), FILL_ALPHA);
-            g.setColor(fill);
-            g.fill(hull);
-
-            g.setColor(EDGE_COLOR);
-            g.setStroke(new BasicStroke(2));
-            g.draw(hull);
+            // Draw model outline with configurable color and feather
+            final Color color = config.outlineColor();
+            final int feather = clamp(config.outlineFeather(), 0, 12);
+            modelOutlineRenderer.drawOutline(zulrah, OUTLINE_WIDTH, color, feather);
 
             return null;
         }
+    }
+
+    private static int clamp(int v, int lo, int hi)
+    {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    // Provide the config implementation
+    @Provides
+    ZulrahWristSaverConfig provideConfig(ConfigManager cm)
+    {
+        return cm.getConfig(ZulrahWristSaverConfig.class);
     }
 }
