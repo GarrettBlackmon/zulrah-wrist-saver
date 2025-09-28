@@ -1,4 +1,4 @@
-package com.example;
+package dev.blackmon;
 
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
