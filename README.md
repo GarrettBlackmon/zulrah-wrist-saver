@@ -6,7 +6,7 @@ Outlines **Zulrah** a few ticks after it first becomes visible so you don’t ha
 
 Video Demo:
 
-[![Youtube Video]()](https://youtu.be/foLr4ffOURU)
+[![Demo Video](https://img.youtube.com/vi/foLr4ffOURU/0.jpg)](https://www.youtube.com/watch?v=foLr4ffOURU)
 
 ---
 
